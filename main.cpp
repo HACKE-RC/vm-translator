@@ -1,5 +1,5 @@
 #include <iostream>
-#include "Rex.h"
+#include "src/Rex.h"
 #include <cstring>
 
 using namespace std;
@@ -14,7 +14,6 @@ int main(int argc, const char** argv) {
         }
         else{
             outputFileName = argv[1];
-            outputFileName.append(".asm");
         }
     }
    else{
