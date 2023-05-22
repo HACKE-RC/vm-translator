@@ -100,7 +100,6 @@ Rex::instructionInfo Rex::getVMInsInfo(std::string &code, ASSEMBLY& assembly){
         code = code.substr(space_idx+1);
         space_idx = code.find(" ");
         duoSeg = code.substr(0, space_idx);
-        to_lower(duoSeg);
 
         code = code.substr(space_idx+1);
         duoParam = code;
@@ -120,7 +119,7 @@ Rex::instructionInfo Rex::getVMInsInfo(std::string &code, ASSEMBLY& assembly){
                 insInfo.mnemonictype = identifyInstruction(insInfo.mnemonic);
                 return insInfo;
             }
-            else if (!(isNumber(duoParam)) && !(isValid(validSegments, duoSeg))){
+            else if (!(isNumber(duoParam)) && !(isValid(validSegments, duoSeg)) && !(duoSeg.starts_with("@")) && !(duoSeg == "SP")){
                 insInfo.instructionType = ERROR_INVALID_INSTRUCTION;
                 return insInfo;
             }
@@ -192,6 +191,8 @@ ASSEMBLY Rex::parseVMCode() {
             case MNEMONIC_RETURN:
                 translateReturn(insInfo, assembly);
                 continue;
+            case MNEMONIC_CALL:
+                translateCall(insInfo, assembly);
             default:
                 continue;
         }
@@ -231,12 +232,16 @@ void Rex::writeOutput() {
 }
 
 void Rex::translatePush(Rex::instructionInfo insInfo, ASSEMBLY& assembly) {
-    if (insInfo.segment.starts_with("@")){
+    if (insInfo.segment == "SP"){
+        assembly.push_back("@SP");
+        assembly.push_back("D=M");
+    }
+    else if (insInfo.segment.starts_with("@")){
         assembly.push_back("@" + insInfo.segment.substr(1));
         assembly.push_back("D=A");
     }
-    else if (insInfo.parameter.empty()){
-        assembly.push_back("@" + m_segAddr[insInfo.segment]);
+    else if (insInfo.parameter == insInfo.segment){
+        assembly.push_back("@" + m_constAddr[insInfo.segment]);
         assembly.push_back("D=M");
     }
     else if (insInfo.segment == "constant"){
@@ -262,7 +267,7 @@ void Rex::translatePush(Rex::instructionInfo insInfo, ASSEMBLY& assembly) {
             // that
             insInfo.segment = "that";
         }
-        assembly.push_back("@" + m_segAddr[insInfo.segment]);
+        assembly.push_back("@" + m_constAddr[insInfo.segment]);
         assembly.push_back("D=M");
     }
 
@@ -270,7 +275,7 @@ void Rex::translatePush(Rex::instructionInfo insInfo, ASSEMBLY& assembly) {
         assembly.push_back("// D = *(" + insInfo.segment + " + " + insInfo.parameter + ")");
         assembly.push_back("@" + insInfo.parameter);
         assembly.push_back("D=A");
-        assembly.push_back("@" + m_segAddr[insInfo.segment]);
+        assembly.push_back("@" + m_constAddr[insInfo.segment]);
         assembly.push_back("A=M");
         assembly.push_back("A=D+A");
         assembly.push_back("D=M");
@@ -287,8 +292,8 @@ void Rex::translatePush(Rex::instructionInfo insInfo, ASSEMBLY& assembly) {
 }
 
 void Rex::translatePop(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
-    if (insInfo.parameter.empty()){
-        assembly.push_back("@" + m_segAddr[insInfo.segment]);
+    if (insInfo.parameter == insInfo.segment){
+        assembly.push_back("@" + m_constAddr[insInfo.segment]);
         assembly.push_back("D=A");
     }
     else if (insInfo.segment == "static"){
@@ -303,15 +308,15 @@ void Rex::translatePop(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
             // that
             insInfo.segment = "that";
         }
-        assembly.push_back("@" + m_segAddr[insInfo.segment]);
+        assembly.push_back("@" + m_constAddr[insInfo.segment]);
         assembly.push_back("D=A");
-        assembly.push_back("@" + m_segAddr["temp"]);
+        assembly.push_back("@" + m_constAddr["temp"]);
         assembly.push_back("M=D");
         assembly.push_back("// D = *(SP - 1)");
         assembly.push_back("@SP");
         assembly.push_back("A=M-1");
         assembly.push_back("D=M");
-        assembly.push_back("@" + m_segAddr["temp"]);
+        assembly.push_back("@" + m_constAddr["temp"]);
         assembly.push_back("A=M");
         assembly.push_back("M=D");
         assembly.push_back("// SP--");
@@ -323,14 +328,14 @@ void Rex::translatePop(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
         assembly.push_back("// D = *(" + insInfo.segment + " + " + insInfo.parameter + ")");
         assembly.push_back("@" + insInfo.parameter);
         assembly.push_back("D=A");
-        assembly.push_back("@" + m_segAddr[insInfo.segment]);
-        assembly.push_back("A=M");
-        assembly.push_back("A=D+A");
+        assembly.push_back("@" + m_constAddr[insInfo.segment]);
+        assembly.push_back("A=D+M");
+//        assembly.push_back("A=D+A");
         assembly.push_back("D=A");
     }
 
         assembly.push_back("// temp = D");
-        assembly.push_back("@" + m_segAddr["temp"]);
+        assembly.push_back("@" + m_constAddr["temp"]);
         assembly.push_back("M=D");
 
         assembly.push_back("// D = *(SP - 1)");
@@ -339,7 +344,7 @@ void Rex::translatePop(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
         assembly.push_back("D=M");
 
         assembly.push_back("// temp = D");
-        assembly.push_back("@" + m_segAddr["temp"]);
+        assembly.push_back("@" + m_constAddr["temp"]);
         assembly.push_back("A=M");
         assembly.push_back("M=D");
 
@@ -474,33 +479,49 @@ void Rex::translateGoTo(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
 
 void Rex::translateCall(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
     std::string returnLabel = insInfo.functionName + ".return_" + std::to_string(m_routine);
-    std::vector<std::string> to_push = {{"@" + returnLabel}, {"argument"}, {"this"}, {"that"}, {"SP"}, {"5"},
-                                        {"sub"}, {insInfo.nArgs}};
+    std::vector<std::string> to_push = {{"@" + returnLabel}, {"local"}, {"argument"}, {"this"}, {"that"}, {"SP"}, {"constant 5"}};
+    std::string instruction;
+    instructionInfo temp_InsInfo;
 
     for (auto member: to_push){
-        std::string instruction = "push " + member;
-        instructionInfo temp_InsInfo = getVMInsInfo(instruction, assembly);
+        instruction = "push " + member;
+        temp_InsInfo = getVMInsInfo(instruction, assembly);
         translatePush(temp_InsInfo, assembly);
     }
 
-    std::string instruction = "pop argument";
-    instructionInfo temp_InsInfo = getVMInsInfo(instruction, assembly);
-    translatePop(temp_InsInfo, assembly);
+    instruction = "sub";
+    temp_InsInfo = getVMInsInfo(instruction, assembly);
+    translateArithmetic(temp_InsInfo, assembly);
 
-    instruction = "push SP";
+    instruction = "push constant " + insInfo.nArgs;
     temp_InsInfo = getVMInsInfo(instruction, assembly);
     translatePush(temp_InsInfo, assembly);
 
-    instruction = "pop local";
+    instruction = "sub";
     temp_InsInfo = getVMInsInfo(instruction, assembly);
-    translatePop(temp_InsInfo, assembly);
+    translateArithmetic(temp_InsInfo, assembly);
 
-    instruction = "goto " + insInfo.functionName;
-    temp_InsInfo = getVMInsInfo(instruction, assembly);
-    translateGoTo(temp_InsInfo, assembly);
+    assembly.push_back("@SP");
+    assembly.push_back("A=M-1");
+    assembly.push_back("D=M");
+    assembly.push_back("@" + m_constAddr["argument"]);
+    assembly.push_back("M=D");
+
+    // directly subtracting stack pointer without a pop to avoid changing temp data directory
+    assembly.push_back("@SP");
+    assembly.push_back("M=M-1");
+
+    // change local to point at SP
+    assembly.push_back("@SP");
+    assembly.push_back("D=M");
+    assembly.push_back("@" + m_constAddr["local"]);
+    assembly.push_back("M=D");
+
+    assembly.push_back("@" + insInfo.functionName);
+    assembly.push_back("0;JMP");
 
     assembly.push_back("(" + returnLabel + ")");
-
+    m_returnLabel = returnLabel;
     m_routine++;
 }
 
@@ -521,26 +542,29 @@ void Rex::translateReturn(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
     std::vector<std::string> segments = {{"that"}, {"this"}, {"argument"}, {"local"}};
     int counter = 1;
 
-    assembly.push_back("@" + m_segAddr["local"]);
+    assembly.push_back("@" + m_constAddr["local"]);
     assembly.push_back("D=M");
 
     assembly.push_back("@endFrame");
     assembly.push_back("M=D");
 
 //    5 is constant.
+    assembly.push_back("@endFrame");
+    assembly.push_back("D=M");
     assembly.push_back("@5");
-    assembly.push_back("D=D-A");
-    assembly.push_back("A=D");
+    assembly.push_back("A=D-A");
     assembly.push_back("D=M");
 
-    assembly.push_back("@return_addr_" + std::to_string(m_routine));
+    assembly.push_back("@retAddr" + std::to_string(m_routine));
     assembly.push_back("M=D");
 
+    //   *ARG = POP()
     instruction = "pop argument 0";
     temp_insInfo = getVMInsInfo(instruction, assembly);
     translatePop(temp_insInfo, assembly);
 
-    assembly.push_back("@" + m_segAddr["argument"]);
+    //  SP = ARG + 1
+    assembly.push_back("@" + m_constAddr["argument"]);
     assembly.push_back("D=M+1");
     assembly.push_back("@SP");
     assembly.push_back("M=D");
@@ -553,12 +577,15 @@ void Rex::translateReturn(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
         assembly.push_back("A=M-D");
         assembly.push_back("D=M");
 
-        assembly.push_back("@" + m_segAddr[segment]);
+        assembly.push_back("@" + m_constAddr[segment]);
         assembly.push_back("M=D");
         counter++;
     }
 
-    assembly.push_back("goto " + returnLabel);
+    assembly.push_back("@retAddr" + std::to_string(m_routine));
+    assembly.push_back("A=M");
+    assembly.push_back("0;JMP");
+    m_routine++;
 }
 
 void Rex::translateFunction(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
@@ -573,8 +600,5 @@ void Rex::translateFunction(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
         instruction = "push constant 0";
         temp_InsInfo = getVMInsInfo(instruction, assembly);
         translatePush(temp_InsInfo, assembly);
-        instruction = "pop local " + std::to_string(i);
-        temp_InsInfo = getVMInsInfo(instruction, assembly);
-        translatePop(temp_InsInfo, assembly);
     }
 }
