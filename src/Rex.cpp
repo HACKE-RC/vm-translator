@@ -75,14 +75,15 @@ Rex::instructionInfo Rex::getVMInsInfo(std::string &code, ASSEMBLY& assembly){
     instructionInfo insInfo;
 
     assembly.push_back("// " + code);
-
-    auto space_idx = code.find(' ');
-    auto space_idx2 = code.find(' ', space_idx + 1);
-    auto space_idx_last = code.find_last_of(' ');
+    auto codeNoSpace = std::find_if_not(code.rbegin(), code.rend(), ::isspace).base();
+    std::string code_cleaned(code.begin(), codeNoSpace);
+    auto space_idx = code_cleaned.find(' ');
+    auto space_idx2 = code_cleaned.find(' ', space_idx + 1);
+    auto space_idx_last = code_cleaned.find_last_of(' ');
     if (space_idx == std::string::npos){
         //  Mono mnemonicType.
-        if (isValid(validMonoIns, code)){
-            insInfo.mnemonic = code;
+        if (isValid(validMonoIns, code_cleaned)){
+            insInfo.mnemonic = code_cleaned;
             insInfo.mnemonictype = identifyInstruction(insInfo.mnemonic);
             insInfo.instructionType = MONOINS;
             return insInfo;
@@ -95,14 +96,14 @@ Rex::instructionInfo Rex::getVMInsInfo(std::string &code, ASSEMBLY& assembly){
     else
     {
         // Duo mnemonicType
-        duoIns = code.substr(0, space_idx);
+        duoIns = code_cleaned.substr(0, space_idx);
         to_lower(duoIns);
-        code = code.substr(space_idx+1);
-        space_idx = code.find(" ");
-        duoSeg = code.substr(0, space_idx);
+        code_cleaned = code_cleaned.substr(space_idx+1);
+        space_idx = code_cleaned.find(" ");
+        duoSeg = code_cleaned.substr(0, space_idx);
 
-        code = code.substr(space_idx+1);
-        duoParam = code;
+        code_cleaned = code_cleaned.substr(space_idx+1);
+        duoParam = code_cleaned;
         duoParam.erase(remove(duoParam.begin(), duoParam.end(), ' '), duoParam.end());
         if (isValid(validDuoIns, duoIns) ){
             if (duoIns == "call" || duoIns == "goto" || duoIns == "if-goto" || duoIns == "label" || duoIns == "function"){
