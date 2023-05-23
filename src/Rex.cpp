@@ -329,13 +329,17 @@ void Rex::translatePop(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
         assembly.push_back("@" + insInfo.parameter);
         assembly.push_back("D=A");
         assembly.push_back("@" + m_constAddr[insInfo.segment]);
-        assembly.push_back("A=D+M");
-//        assembly.push_back("A=D+A");
-        assembly.push_back("D=A");
+        if (insInfo.segment == "temp"){
+            assembly.push_back("D=D+A");
+        }
+        else{
+            assembly.push_back("D=D+M");
+        }
+//        assembly.push_back("D=A");
     }
 
-        assembly.push_back("// temp = D");
-        assembly.push_back("@" + m_constAddr["temp"]);
+        assembly.push_back("// temp_var = D");
+        assembly.push_back("@temp_var");
         assembly.push_back("M=D");
 
         assembly.push_back("// D = *(SP - 1)");
@@ -343,8 +347,8 @@ void Rex::translatePop(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
         assembly.push_back("A=M-1");
         assembly.push_back("D=M");
 
-        assembly.push_back("// temp = D");
-        assembly.push_back("@" + m_constAddr["temp"]);
+        assembly.push_back("// temp_var = D");
+        assembly.push_back("@temp_var");
         assembly.push_back("A=M");
         assembly.push_back("M=D");
 
