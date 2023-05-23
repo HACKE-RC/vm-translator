@@ -19,6 +19,7 @@ private:
    VMCODE m_vmcode;
    std::string m_outfName;
    ASSEMBLY m_assembly;
+   std::string m_returnLabel;
 
    enum insType {
        MONOINS = 1,
@@ -70,10 +71,11 @@ public:
     };
 
 private:
-    int m_routine = 0;
-    std::map<std::string, std::string> m_segAddr = {{"local", "1"}, {"argument", "2"},
-                                                    {"this", "3"}, {"that", "4"},
-                                                    {"temp", "5"}, {"pointer", "3"}};
+    int m_routine = 1;
+    std::map<std::string, std::string> m_constAddr = {{"local", "1"}, {"argument", "2"},
+                                                      {"this",  "3"}, {"that", "4"},
+                                                      {"temp",  "5"}, {"pointer", "3"},
+                                                      {"SP", "0"}};
 
     static void printInsInfo(instructionInfo& insInf);
 
