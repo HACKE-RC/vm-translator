@@ -26,7 +26,6 @@ Rex::Rex(std::string fName, std::string outfName){
         this->m_outfName = outfName.append(".asm");
     }
     for (auto file: fNames){
-        std::cout << file << std::endl;
         std::ifstream fStream(file);
 
         if (!fStream.good()){
