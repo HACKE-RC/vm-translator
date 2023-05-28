@@ -1,21 +1,29 @@
 #include "Rex.h"
 
 Rex::Rex(std::string fName, std::string outfName){
-    std::vector<std::string> fNames;
+    std::vector<std::string> fNames = {};
 
     if (std::filesystem::is_directory(fName.c_str())){
+
         for (auto entry: std::filesystem::directory_iterator(fName.c_str())){
             if (std::filesystem::is_regular_file(entry)){
-                if (entry.path().filename().string().ends_with(".vm")){
-                    fNames.push_back(fName + "\\" + entry.path().filename().string());
+                auto filename = entry.path().filename().string();
+                auto full_filename = fName + "\\" + filename;
+                if (filename.ends_with(".vm") && std::find(fNames.begin(), fNames.end(), full_filename) == fNames.end()){
+                    fNames.push_back(full_filename);
                 }
             }
         }
-        this->m_outfName = fName + "\\" + fName.substr(fName.find_last_of("\\")+1)  + ".asm";
+       if (std::filesystem::is_directory(outfName.substr(0, outfName.find_last_of("\\")))){
+           this->m_outfName = outfName;
+       }
+       else{
+           this->m_outfName = fName + "\\" +  outfName;
+       }
     }
     else{
         fNames.push_back(fName);
-        m_outfName = outfName.append(".asm");
+        this->m_outfName = outfName.append(".asm");
     }
     for (auto file: fNames){
         std::cout << file << std::endl;
@@ -30,7 +38,6 @@ Rex::Rex(std::string fName, std::string outfName){
            m_vmcode.push_back(m_fData);
        }
     }
-
 
 }
 
@@ -73,8 +80,9 @@ Rex::instructionInfo Rex::getVMInsInfo(std::string &code, ASSEMBLY& assembly){
     std::string duoSeg;
     std::string duoParam;
     instructionInfo insInfo;
-
-    assembly.push_back("// " + code);
+    if (!(code.starts_with("goto"))){
+        assembly.push_back("// " + code);
+    }
     auto codeNoSpace = std::find_if_not(code.rbegin(), code.rend(), ::isspace).base();
     std::string code_cleaned(code.begin(), codeNoSpace);
     auto space_idx = code_cleaned.find(' ');
@@ -108,7 +116,7 @@ Rex::instructionInfo Rex::getVMInsInfo(std::string &code, ASSEMBLY& assembly){
         if (isValid(validDuoIns, duoIns) ){
             if (duoIns == "call" || duoIns == "goto" || duoIns == "if-goto" || duoIns == "label" || duoIns == "function"){
                 if (duoIns == "call" || duoIns == "label" || duoIns == "function"){
-//                 // function is also a type of label;
+                 // function is also a type of label;
                     insInfo.instructionType = duoIns == "call" ? CALL : LABEL;
                     insInfo.nArgs = duoParam;
                 }
@@ -143,6 +151,16 @@ Rex::instructionInfo Rex::getVMInsInfo(std::string &code, ASSEMBLY& assembly){
 ASSEMBLY Rex::parseVMCode() {
     instructionInfo insInfo;
     ASSEMBLY assembly;
+
+    assembly.push_back("// Initialise stack pointer to 256");
+    assembly.push_back("@256");
+    assembly.push_back("D=A");
+    assembly.push_back("@SP");
+    assembly.push_back("M=D");
+
+    std::string instruction = "call Sys.init 0";
+    instructionInfo temp_Info = getVMInsInfo(instruction, assembly);
+    translateCall(temp_Info, assembly);
 
     for (auto token: this->m_vmcode) {
         insInfo = getVMInsInfo(token, assembly);
@@ -277,8 +295,7 @@ void Rex::translatePush(Rex::instructionInfo insInfo, ASSEMBLY& assembly) {
         assembly.push_back("@" + insInfo.parameter);
         assembly.push_back("D=A");
         assembly.push_back("@" + m_constAddr[insInfo.segment]);
-        assembly.push_back("A=M");
-        assembly.push_back("A=D+A");
+        assembly.push_back("A=D+M");
         assembly.push_back("D=M");
     }
 
@@ -473,7 +490,7 @@ void Rex::translateGoTo(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
         assembly.push_back("@SP");
         assembly.push_back("M=M-1");
         assembly.push_back("@" + insInfo.functionName);
-        assembly.push_back("D;JGT");
+        assembly.push_back("D;JNE");
         return;
     }
 
@@ -483,8 +500,8 @@ void Rex::translateGoTo(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
 }
 
 void Rex::translateCall(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
-    std::string returnLabel = insInfo.functionName + ".return_" + std::to_string(m_routine);
-    std::vector<std::string> to_push = {{"@" + returnLabel}, {"local"}, {"argument"}, {"this"}, {"that"}, {"SP"}, {"constant 5"}};
+    std::string returnLabel = insInfo.functionName.substr(0, insInfo.functionName.find_first_of(".")) + "$return." + std::to_string(m_routine);
+    std::vector<std::string> to_push = {{"@" + returnLabel}, {"local"}, {"argument"}, {"this"}, {"that"}};
     std::string instruction;
     instructionInfo temp_InsInfo;
 
@@ -494,29 +511,16 @@ void Rex::translateCall(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
         translatePush(temp_InsInfo, assembly);
     }
 
-    instruction = "sub";
-    temp_InsInfo = getVMInsInfo(instruction, assembly);
-    translateArithmetic(temp_InsInfo, assembly);
-
-    instruction = "push constant " + insInfo.nArgs;
-    temp_InsInfo = getVMInsInfo(instruction, assembly);
-    translatePush(temp_InsInfo, assembly);
-
-    instruction = "sub";
-    temp_InsInfo = getVMInsInfo(instruction, assembly);
-    translateArithmetic(temp_InsInfo, assembly);
-
+    assembly.push_back("// argument = SP - nArgs  - 5");
     assembly.push_back("@SP");
-    assembly.push_back("A=M-1");
     assembly.push_back("D=M");
+    assembly.push_back("@" + std::to_string(5 + std::stoi(insInfo.nArgs)));
+    assembly.push_back("D=D-A");
     assembly.push_back("@" + m_constAddr["argument"]);
     assembly.push_back("M=D");
 
-    // directly subtracting stack pointer without a pop to avoid changing temp data directory
-    assembly.push_back("@SP");
-    assembly.push_back("M=M-1");
-
     // change local to point at SP
+    assembly.push_back("// local = SP");
     assembly.push_back("@SP");
     assembly.push_back("D=M");
     assembly.push_back("@" + m_constAddr["local"]);
@@ -543,7 +547,6 @@ void Rex::translateReturn(Rex::instructionInfo insInfo, ASSEMBLY &assembly) {
     std::string instruction;
     instructionInfo temp_insInfo;
 
-    std::string returnLabel = insInfo.functionName + ".return_" + std::to_string(m_routine-1);
     std::vector<std::string> segments = {{"that"}, {"this"}, {"argument"}, {"local"}};
     int counter = 1;
 
